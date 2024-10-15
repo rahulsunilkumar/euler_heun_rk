@@ -17,7 +17,15 @@
             margin: 10px;
             padding: 5px;
         }
-        #plot, #heun-plot, #rk-plot {
+        #input-section {
+            margin-bottom: 20px;
+        }
+        #mathml-representation {
+            margin: 10px 0;
+            font-style: italic;
+            color: #555;
+        }
+        #plot {
             width: 80%;
             margin: auto;
         }
@@ -31,84 +39,106 @@
 <body>
     <h1>Euler's, Heun's, and Runge-Kutta Method Visualization</h1>
 
-    <label for="function-input">Enter function (f(x)):</label>
-    <input type="text" id="function-input" value="x^2">
-    <div id="mathml-representation"></div>
+    <div id="input-section">
+        <label for="function-input">Enter differential equation: <span style="font-weight: bold;">dy/dx = f(x, y)</span></label>
+        <input type="text" id="function-input" value="x^2 + y">
+    </div>
+    <div id="mathml-representation">Function Representation: <span id="mathml-output"></span></div>
 
     <label for="step-slider">Step size:</label>
-    <input type="range" id="step-slider" min="0.01" max="0.5" step="0.01" value="0.1">
+    <input type="range" id="step-slider" min="0.01" max="1" step="0.01" value="0.1">
     <span id="step-value">0.1</span>
 
     <label for="start-x">Starting x value:</label>
     <input type="number" id="start-x" value="0">
 
+    <label for="start-y">Starting y value:</label>
+    <input type="number" id="start-y" value="1">
+
     <div id="plot"></div>
     <div id="error-display" class="error-display"></div>
-
-    <div id="heun-plot"></div>
-    <div id="heun-error-display" class="error-display"></div>
-
-    <div id="rk-plot"></div>
-    <div id="rk-error-display" class="error-display"></div>
 
     <script>
         function mathToMathML(expression) {
             try {
                 let node = math.parse(expression);
-                return node.toString({ parenthesis: 'auto' });
+                return node.toTex({ parenthesis: 'auto' });
             } catch (error) {
                 return "Invalid function";
             }
         }
 
-        function evaluateFunction(fn, x) {
+        function evaluateFunction(fn, x, y) {
             try {
                 const parsed = math.parse(fn);
                 const compiled = parsed.compile();
-                return compiled.evaluate({ x });
+                return compiled.evaluate({ x, y });
             } catch (error) {
                 return NaN;
             }
+        }
+
+        function computeTrueSolutionAtXValues(fn, startX, startY, xValues) {
+            let x = startX;
+            let y = startY;
+            let h = 0.001;
+            let trueYValues = [];
+            let index = 0;
+            while (x <= xValues[xValues.length - 1] + h) {
+                if (Math.abs(x - xValues[index]) < h / 2) {
+                    trueYValues.push(y);
+                    index++;
+                    if (index >= xValues.length) {
+                        break;
+                    }
+                }
+                let k1 = h * evaluateFunction(fn, x, y);
+                let k2 = h * evaluateFunction(fn, x + h / 2, y + k1 / 2);
+                let k3 = h * evaluateFunction(fn, x + h / 2, y + k2 / 2);
+                let k4 = h * evaluateFunction(fn, x + h, y + k3);
+                y += (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+                x += h;
+            }
+            return trueYValues;
         }
 
         function plotFunction() {
             let fn = document.getElementById("function-input").value;
             let stepSize = parseFloat(document.getElementById("step-slider").value);
             let startX = parseFloat(document.getElementById("start-x").value);
+            let startY = parseFloat(document.getElementById("start-y").value);
+            let numberOfSteps = 100;
 
             // Update MathML representation
-            document.getElementById("mathml-representation").textContent = mathToMathML(fn);
+            document.getElementById("mathml-output").innerHTML = mathToMathML(fn);
 
-            // Prepare data for Euler's Method plot
-            let xValues = [], yValues = [], eulerX = [], eulerY = [], errorLines = [];
-            let x = -stepSize * 100;
-            let y = evaluateFunction(fn, x);
-
-            // Original function
-            while (x <= stepSize * 100) {
-                xValues.push(x);
-                yValues.push(y);
-                x += 0.1;
-                y = evaluateFunction(fn, x);
+            // Generate x values for approximations
+            let approximationXValues = [];
+            for (let i = 0; i <= numberOfSteps; i++) {
+                approximationXValues.push(startX + i * stepSize);
             }
 
-            // Euler's Method
-            x = startX;
-            y = evaluateFunction(fn, startX);
+            // Compute true solution at approximation x values
+            let trueYValues = computeTrueSolutionAtXValues(fn, startX, startY, approximationXValues);
+
+            // Prepare data for Euler's Method
+            let eulerX = [], eulerY = [], eulerErrorLines = [];
+            let x = startX;
+            let y = startY;
             eulerX.push(x);
             eulerY.push(y);
 
-            for (let i = 0; i < 100; i++) {
-                let slope = evaluateFunction(fn, x);
+            for (let i = 1; i <= numberOfSteps; i++) {
+                let slope = evaluateFunction(fn, x, y);
                 y += stepSize * slope;
                 x += stepSize;
                 eulerX.push(x);
                 eulerY.push(y);
 
                 // Calculate error and create error line
-                let trueY = evaluateFunction(fn, x);
+                let trueY = trueYValues[i];
                 if (!isNaN(trueY) && !isNaN(y)) {
-                    errorLines.push({
+                    eulerErrorLines.push({
                         x: [x, x],
                         y: [trueY, y],
                         type: 'scatter',
@@ -119,72 +149,26 @@
                 }
             }
 
-            let originalFunctionTrace = {
-                x: xValues,
-                y: yValues,
-                type: 'scatter',
-                mode: 'lines',
-                line: { width: 3, color: 'blue' },
-                name: 'Original Function'
-            };
-
-            let eulerTrace = {
-                x: eulerX,
-                y: eulerY,
-                type: 'scatter',
-                mode: 'lines+markers',
-                line: { dash: 'dot', color: 'red' },
-                marker: { size: 6 },
-                name: "Euler's Approximation"
-            };
-
-            Plotly.newPlot('plot', [originalFunctionTrace, eulerTrace, ...errorLines], {
-                title: "Euler's Method Approximation",
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#ffffff',
-                xaxis: {
-                    title: 'x',
-                    color: '#000000'
-                },
-                yaxis: {
-                    title: 'f(x)',
-                    color: '#000000'
-                }
-            });
-
-            // Calculate total percentage error for Euler's Method
-            let totalError = 0;
-            let count = 0;
-            for (let i = 0; i < eulerX.length; i++) {
-                let trueY = evaluateFunction(fn, eulerX[i]);
-                if (!isNaN(trueY) && !isNaN(eulerY[i]) && trueY !== 0) {
-                    totalError += Math.abs((trueY - eulerY[i]) / trueY) * 100;
-                    count++;
-                }
-            }
-            let averageError = totalError / count;
-            document.getElementById("error-display").textContent = `Total Approximation Error (Euler's Method): ${averageError.toFixed(2)}%`;
-
-            // Prepare data for Heun's Method plot
+            // Prepare data for Heun's Method
             let heunX = [], heunY = [], heunErrorLines = [];
             x = startX;
-            y = evaluateFunction(fn, startX);
+            y = startY;
             heunX.push(x);
             heunY.push(y);
 
-            for (let i = 0; i < 100; i++) {
-                let slope1 = evaluateFunction(fn, x);
+            for (let i = 1; i <= numberOfSteps; i++) {
+                let slope1 = evaluateFunction(fn, x, y);
                 let predictorY = y + stepSize * slope1;
                 let nextX = x + stepSize;
-                let slope2 = evaluateFunction(fn, nextX);
+                let slope2 = evaluateFunction(fn, nextX, predictorY);
                 let avgSlope = (slope1 + slope2) / 2;
                 y += stepSize * avgSlope;
                 x = nextX;
                 heunX.push(x);
                 heunY.push(y);
 
-                // Calculate error and create error line for Heun's Method
-                let trueY = evaluateFunction(fn, x);
+                // Calculate error and create error line
+                let trueY = trueYValues[i];
                 if (!isNaN(trueY) && !isNaN(y)) {
                     heunErrorLines.push({
                         x: [x, x],
@@ -197,52 +181,15 @@
                 }
             }
 
-            let heunTrace = {
-                x: heunX,
-                y: heunY,
-                type: 'scatter',
-                mode: 'lines+markers',
-                line: { dash: 'dot', color: 'purple' },
-                marker: { size: 6 },
-                name: "Heun's Approximation"
-            };
-
-            Plotly.newPlot('heun-plot', [originalFunctionTrace, heunTrace, ...heunErrorLines], {
-                title: "Heun's Method Approximation",
-                paper_bgcolor: '#ffffff',
-                plot_bgcolor: '#ffffff',
-                xaxis: {
-                    title: 'x',
-                    color: '#000000'
-                },
-                yaxis: {
-                    title: 'f(x)',
-                    color: '#000000'
-                }
-            });
-
-            // Calculate total percentage error for Heun's Method
-            totalError = 0;
-            count = 0;
-            for (let i = 0; i < heunX.length; i++) {
-                let trueY = evaluateFunction(fn, heunX[i]);
-                if (!isNaN(trueY) && !isNaN(heunY[i]) && trueY !== 0) {
-                    totalError += Math.abs((trueY - heunY[i]) / trueY) * 100;
-                    count++;
-                }
-            }
-            averageError = totalError / count;
-            document.getElementById("heun-error-display").textContent = `Total Approximation Error (Heun's Method): ${averageError.toFixed(2)}%`;
-
-            // Prepare data for Runge-Kutta Method (4th Order) plot
+            // Prepare data for Runge-Kutta Method (4th Order)
             let rkX = [], rkY = [], rkErrorLines = [];
             x = startX;
-            y = evaluateFunction(fn, startX);
+            y = startY;
             rkX.push(x);
             rkY.push(y);
 
-            for (let i = 0; i < 100; i++) {
-                let k1 = stepSize * evaluateFunction(fn, x);
+            for (let i = 1; i <= numberOfSteps; i++) {
+                let k1 = stepSize * evaluateFunction(fn, x, y);
                 let k2 = stepSize * evaluateFunction(fn, x + stepSize / 2, y + k1 / 2);
                 let k3 = stepSize * evaluateFunction(fn, x + stepSize / 2, y + k2 / 2);
                 let k4 = stepSize * evaluateFunction(fn, x + stepSize, y + k3);
@@ -251,8 +198,8 @@
                 rkX.push(x);
                 rkY.push(y);
 
-                // Calculate error and create error line for Runge-Kutta Method
-                let trueY = evaluateFunction(fn, x);
+                // Calculate error and create error line
+                let trueY = trueYValues[i];
                 if (!isNaN(trueY) && !isNaN(y)) {
                     rkErrorLines.push({
                         x: [x, x],
@@ -265,6 +212,36 @@
                 }
             }
 
+            // Plot all methods on the same graph
+            let originalFunctionTrace = {
+                x: approximationXValues,
+                y: trueYValues,
+                type: 'scatter',
+                mode: 'lines',
+                line: { width: 3, color: 'blue' },
+                name: 'True Solution'
+            };
+
+            let eulerTrace = {
+                x: eulerX,
+                y: eulerY,
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { dash: 'dot', color: 'red' },
+                marker: { size: 6 },
+                name: "Euler's Approximation"
+            };
+
+            let heunTrace = {
+                x: heunX,
+                y: heunY,
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { dash: 'dot', color: 'purple' },
+                marker: { size: 6 },
+                name: "Heun's Approximation"
+            };
+
             let rkTrace = {
                 x: rkX,
                 y: rkY,
@@ -275,8 +252,8 @@
                 name: "Runge-Kutta Approximation"
             };
 
-            Plotly.newPlot('rk-plot', [originalFunctionTrace, rkTrace, ...rkErrorLines], {
-                title: "Runge-Kutta Method Approximation (4th Order)",
+            Plotly.newPlot('plot', [originalFunctionTrace, eulerTrace, heunTrace, rkTrace, ...eulerErrorLines, ...heunErrorLines, ...rkErrorLines], {
+                title: "Numerical Methods Approximation",
                 paper_bgcolor: '#ffffff',
                 plot_bgcolor: '#ffffff',
                 xaxis: {
@@ -284,23 +261,31 @@
                     color: '#000000'
                 },
                 yaxis: {
-                    title: 'f(x)',
+                    title: 'y',
                     color: '#000000'
                 }
             });
 
-            // Calculate total percentage error for Runge-Kutta Method
-            totalError = 0;
-            count = 0;
-            for (let i = 0; i < rkX.length; i++) {
-                let trueY = evaluateFunction(fn, rkX[i]);
-                if (!isNaN(trueY) && !isNaN(rkY[i]) && trueY !== 0) {
-                    totalError += Math.abs((trueY - rkY[i]) / trueY) * 100;
-                    count++;
+            // Calculate total percentage errors
+            function calculateTotalError(approxYValues, methodName) {
+                let totalError = 0;
+                let count = 0;
+                for (let i = 0; i < approxYValues.length; i++) {
+                    let trueY = trueYValues[i];
+                    let approxY = approxYValues[i];
+                    if (!isNaN(trueY) && !isNaN(approxY) && trueY !== 0) {
+                        totalError += Math.abs((trueY - approxY) / trueY) * 100;
+                        count++;
+                    }
                 }
+                let averageError = totalError / count;
+                return `${methodName} Total Approximation Error: ${averageError.toFixed(2)}%`;
             }
-            averageError = totalError / count;
-            document.getElementById("rk-error-display").textContent = `Total Approximation Error (Runge-Kutta Method): ${averageError.toFixed(2)}%`;
+
+            let eulerErrorText = calculateTotalError(eulerY, "Euler's Method");
+            let heunErrorText = calculateTotalError(heunY, "Heun's Method");
+            let rkErrorText = calculateTotalError(rkY, "Runge-Kutta Method");
+            document.getElementById("error-display").textContent = `${eulerErrorText} | ${heunErrorText} | ${rkErrorText}`;
         }
 
         // Attach event listeners
@@ -310,6 +295,7 @@
             plotFunction();
         });
         document.getElementById("start-x").addEventListener("input", plotFunction);
+        document.getElementById("start-y").addEventListener("input", plotFunction);
 
         // Initial plot
         plotFunction();
